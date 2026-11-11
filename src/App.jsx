@@ -9,7 +9,7 @@ import Dashboard from "./pages/Dashboard.jsx";
 import SentimentMonitoring from "./pages/SentimentMonitoring.jsx";
 import Dataset from "./pages/Dataset.jsx";
 import InsightExport from "./pages/InsightExport.jsx";
-import AspectPriority from "./pages/AspectPriority.jsx";
+import AspectPriority from "./aspek-prioritas.jsx";
 import HelpManual from "./pages/HelpManual.jsx";
 
 export default function App() {
