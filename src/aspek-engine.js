@@ -1,19 +1,6 @@
-// Mesin analisis Aspek & Prioritas PMB Insight.
-// Tanpa dependensi eksternal. Berjalan sepenuhnya di browser.
-//
-// Alur: komentar -> normalisasi -> pecah klausa -> deteksi aspek -> sentimen per aspek
-//       -> agregasi -> skor prioritas (frekuensi, proporsi negatif, tren, kepentingan).
-//
-// Untuk memakai model ML dari backend, kirim prop `predictor` ke <AspekPrioritas />:
-//   async (teks) => ({ aspects: [{ aspect: 'pendaftaran', sentiment: 'negatif' }], overall: 'negatif' })
-
 export const SENTIMENTS = ['positif', 'netral', 'negatif'];
 
-/* ------------------------------------------------------------------ */
-/* Taksonomi aspek (sesuai daftar aspek awal pada rencana penelitian)  */
-/* ------------------------------------------------------------------ */
-// Kata kunci: awalan kata dicocokkan (mis. "daftar" cocok dengan "daftarnya").
-// Akhiran "$" berarti harus cocok persis satu kata penuh.
+
 export const ASPECTS = [
   {
     id: 'pendaftaran', label: 'Pendaftaran', importance: 5,
@@ -115,7 +102,6 @@ export const ASPECTS = [
 export const ASPECT_MAP = Object.fromEntries(ASPECTS.map((a) => [a.id, a]));
 export const DEFAULT_IMPORTANCE = Object.fromEntries(ASPECTS.map((a) => [a.id, a.importance]));
 
-/* Bobot kriteria prioritas (dapat diubah Panitia pada antarmuka). */
 export const CRITERIA = [
   { id: 'freq', label: 'Frekuensi sebutan', hint: 'Seberapa sering aspek dibicarakan dibanding aspek lain.' },
   { id: 'neg', label: 'Proporsi negatif', hint: 'Porsi sebutan bersentimen negatif pada aspek tersebut.' },
@@ -127,9 +113,7 @@ export const DEFAULT_WEIGHTS = { freq: 30, neg: 35, trend: 15, imp: 20 };
 export const LEVELS = { HIGH: 'Tinggi', MID: 'Sedang', LOW: 'Rendah', NONE: 'Belum ada data' };
 export const LEVEL_THRESHOLDS = { high: 60, mid: 40 };
 
-/* ------------------------------------------------------------------ */
-/* Normalisasi teks                                                    */
-/* ------------------------------------------------------------------ */
+
 const SLANG = {
   gak: 'tidak', ga: 'tidak', nggak: 'tidak', ngga: 'tidak', gk: 'tidak', tdk: 'tidak', tak: 'tidak',
   gabisa: 'tidak bisa', yg: 'yang', bgt: 'banget', bngt: 'banget', udh: 'sudah', sdh: 'sudah',
@@ -149,9 +133,7 @@ export function normalize(text) {
   return t.replace(/\s+/g, ' ').trim();
 }
 
-/* ------------------------------------------------------------------ */
-/* Leksikon sentimen                                                   */
-/* ------------------------------------------------------------------ */
+
 const POS = new Set(['bagus', 'baik', 'mudah', 'cepat', 'ramah', 'membantu', 'terbantu', 'jelas', 'lengkap', 'murah', 'terjangkau', 'puas', 'memuaskan', 'senang', 'mantap', 'keren', 'nyaman', 'responsif', 'informatif', 'lancar', 'bersih', 'modern', 'rekomendasi', 'recommended', 'suka', 'oke', 'profesional', 'sigap', 'gratis', 'menarik', 'praktis', 'simpel', 'transparan', 'sopan', 'seru', 'luas', 'terbaik', 'sempurna', 'rapi', 'ringan', 'dipahami', 'aman']);
 const NEG = new Set(['lambat', 'lama', 'susah', 'sulit', 'ribet', 'rumit', 'bingung', 'membingungkan', 'mahal', 'error', 'gagal', 'lemot', 'down', 'macet', 'buruk', 'jelek', 'kecewa', 'mengecewakan', 'lelet', 'cuek', 'judes', 'ketus', 'kasar', 'berbelit', 'telat', 'sempit', 'panas', 'kotor', 'rusak', 'minim', 'gangguan', 'hilang', 'salah', 'masalah', 'kendala', 'keluhan', 'complain', 'kadaluarsa', 'antri', 'antre', 'penuh', 'hang', 'berantakan', 'monoton', 'membosankan', 'simpang', 'sepi', 'tidak ramah', 'parah', 'menyulitkan', 'merugikan']);
 const NEGATORS = new Set(['tidak', 'belum', 'kurang', 'bukan', 'tanpa', 'jangan']);
@@ -178,9 +160,6 @@ export function scoreText(norm) {
 
 const labelOf = (s) => (s > 0.5 ? 'positif' : s < -0.5 ? 'negatif' : 'netral');
 
-/* ------------------------------------------------------------------ */
-/* Deteksi aspek                                                       */
-/* ------------------------------------------------------------------ */
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const ASPECT_REGEX = ASPECTS.map((a) => ({
   id: a.id,
@@ -197,7 +176,6 @@ export function detectAspects(clause) {
 
 const CLAUSE_SPLIT = /[.!?;\n]+|,|\s(?:tapi|namun|tetapi|sayangnya|sedangkan|cuma|hanya saja)\s/;
 
-/** Prediktor berbasis aturan: komentar -> { aspects: [{aspect, sentiment, evidence}], overall } */
 export function ruleBasedPredict(text) {
   const norm = normalize(text);
   const clauses = norm.split(CLAUSE_SPLIT).map((s) => s.trim()).filter(Boolean);
@@ -229,9 +207,6 @@ function assignTheme(aspectId, evidence, norm) {
   return th ? th.label : 'Keluhan lain';
 }
 
-/* ------------------------------------------------------------------ */
-/* Analisis seluruh baris                                              */
-/* ------------------------------------------------------------------ */
 export function periodOf(iso) {
   if (!iso) return null;
   const y = Number(iso.slice(0, 4));
@@ -257,9 +232,7 @@ export async function analyzeRows(rows, predictor = ruleBasedPredict) {
   return out;
 }
 
-/* ------------------------------------------------------------------ */
-/* Agregasi dan skor prioritas                                         */
-/* ------------------------------------------------------------------ */
+
 const clamp = (v, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));
 
 export function levelOf(score, mentions) {
@@ -334,9 +307,6 @@ export function summarize(results, { weights = DEFAULT_WEIGHTS, importance = DEF
   };
 }
 
-/* ------------------------------------------------------------------ */
-/* CSV: parser, template, ekspor                                       */
-/* ------------------------------------------------------------------ */
 function parseCsv(text, delim) {
   const rows = [];
   let row = [];
@@ -414,9 +384,6 @@ export function toCsv(columns, rows) {
   return [columns.map(q).join(','), ...rows.map((r) => r.map(q).join(','))].join('\r\n');
 }
 
-/* ------------------------------------------------------------------ */
-/* Dataset Firebase -> baris analisis                                  */
-/* ------------------------------------------------------------------ */
 const pick = (o, names) => {
   for (const n of names) if (o && o[n] != null && o[n] !== '') return o[n];
   const keys = Object.keys(o || {});
