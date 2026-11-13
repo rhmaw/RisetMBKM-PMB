@@ -8,10 +8,6 @@ import {
 const LS_KEY = 'pmb-aspek-prioritas-v1';
 const LEVEL_CLASS = { [LEVELS.HIGH]: 'hi', [LEVELS.MID]: 'md', [LEVELS.LOW]: 'lo', [LEVELS.NONE]: 'na' };
 const SENT_LABEL = { positif: 'Positif', netral: 'Netral', negatif: 'Negatif' };
-const PMB_YEAR = 2026; // Periode PMB hanya untuk tahun ini
-const DATE_MIN = `${PMB_YEAR}-01-01`;
-const DATE_MAX = `${PMB_YEAR}-12-31`;
-const forceYear = (v) => (v && v.slice(0, 4) !== String(PMB_YEAR) ? `${PMB_YEAR}${v.slice(4)}` : v);
 
 const pct = (v) => `${Math.round(v * 100)}%`;
 
@@ -147,8 +143,8 @@ export default function AspekPrioritas({ predictor, predictorLabel, loadFirebase
   // Setiap data baru dimuat: semua filter kembali kosong.
   useEffect(() => { setDateFrom(''); setDateTo(''); setSumber('all'); setAspek('all'); setApplied(null); setExpanded(null); setQuery(''); }, [rows]);
 
-  const onFrom = (v) => { const f = forceYear(v); setDateFrom(f); if (f && dateTo && f > dateTo) setDateTo(f); };
-  const onTo = (v) => { const t = forceYear(v); setDateTo(t); if (t && dateFrom && t < dateFrom) setDateFrom(t); };
+  const onFrom = (v) => { const f = v; setDateFrom(f); if (f && dateTo && f > dateTo) setDateTo(f); };
+  const onTo = (v) => { const t = v; setDateTo(t); if (t && dateFrom && t < dateFrom) setDateFrom(t); };
 
   const filtered = useMemo(() => {
     if (!applied) return [];
@@ -270,13 +266,13 @@ export default function AspekPrioritas({ predictor, predictorLabel, loadFirebase
 
       <section className="ap-card ap-filters" aria-label="Filter">
         <fieldset className="ap-period" disabled={!hasDates}>
-          <legend>Periode PMB {PMB_YEAR}</legend>
+          <legend>Periode PMB</legend>
           <div className="ap-period__row">
             <label>Dari tanggal
-              <input type="date" min={DATE_MIN} max={DATE_MAX} value={dateFrom} onChange={(e) => onFrom(e.target.value)} />
+              <input type="date" value={dateFrom} onChange={(e) => onFrom(e.target.value)} />
             </label>
             <label>Sampai tanggal
-              <input type="date" min={DATE_MIN} max={DATE_MAX} value={dateTo} onChange={(e) => onTo(e.target.value)} />
+              <input type="date" value={dateTo} onChange={(e) => onTo(e.target.value)} />
             </label>
           </div>
           {(dateFrom || dateTo) ? (
