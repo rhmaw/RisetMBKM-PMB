@@ -245,14 +245,14 @@ export async function analyzeRows(rows, predictor = ruleBasedPredict) {
     let p;
     try { p = await predictor(r.text); } catch { p = { aspects: [], overall: 'netral' }; }
     const norm = p.norm || normalize(r.text);
+    const rowLabel = SENTIMENTS.includes(r.label) ? r.label : null; // label sentimen dari dataset (hasil model/anotasi)
     const aspects = (p.aspects || [])
       .filter((a) => ASPECT_MAP[a.aspect])
-      .map((a) => ({
-        aspect: a.aspect,
-        sentiment: SENTIMENTS.includes(a.sentiment) ? a.sentiment : 'netral',
-        theme: a.sentiment === 'negatif' ? assignTheme(a.aspect, a.evidence, norm) : null,
-      }));
-    out.push({ id: r.id, text: r.text, date: r.date || null, source: r.source || '-', periode: periodOf(r.date), aspects, overall: p.overall || 'netral' });
+      .map((a) => {
+        const sentiment = rowLabel || (SENTIMENTS.includes(a.sentiment) ? a.sentiment : 'netral');
+        return { aspect: a.aspect, sentiment, theme: sentiment === 'negatif' ? assignTheme(a.aspect, a.evidence, norm) : null };
+      });
+    out.push({ id: r.id, text: r.text, date: r.date || null, source: r.source || '-', periode: periodOf(r.date), aspects, overall: rowLabel || p.overall || 'netral' });
   }
   return out;
 }
@@ -412,4 +412,58 @@ export function toCsv(columns, rows) {
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return [columns.map(q).join(','), ...rows.map((r) => r.map(q).join(','))].join('\r\n');
+}
+
+/* ------------------------------------------------------------------ */
+/* Dataset Firebase -> baris analisis                                  */
+/* ------------------------------------------------------------------ */
+const pick = (o, names) => {
+  for (const n of names) if (o && o[n] != null && o[n] !== '') return o[n];
+  const keys = Object.keys(o || {});
+  for (const n of names) { const k = keys.find((x) => x.toLowerCase() === n); if (k && o[k] != null && o[k] !== '') return o[k]; }
+  return null;
+};
+
+function toIsoDate(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'object') {
+    if (typeof v.toDate === 'function') return toIsoDate(v.toDate());
+    if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+    if (typeof v.seconds === 'number') return toIsoDate(new Date(v.seconds * 1000));
+    return null;
+  }
+  if (typeof v === 'number') return toIsoDate(new Date(v < 1e12 ? v * 1000 : v));
+  return parseDate(v);
+}
+
+const LABEL_COLS = ['sentimen', 'sentiment', 'label', 'predicted_label', 'prediction', 'prediksi', 'label_sentimen', 'sentiment_label'];
+const DATE_HINTS = ['tanggal', 'tgl', 'date', 'waktu', 'time', 'created', 'posted', 'publish', 'timestamp', 'datetime'];
+const LABEL_MAP = { positif: 'positif', positive: 'positif', pos: 'positif', netral: 'netral', neutral: 'netral', neu: 'netral', negatif: 'negatif', negative: 'negatif', neg: 'negatif' };
+
+function findByHint(o, hints, accept) {
+  for (const k of Object.keys(o || {})) {
+    const lk = k.toLowerCase();
+    if (hints.some((h) => lk.includes(h))) { const r = accept(o[k]); if (r) return r; }
+  }
+  return null;
+}
+
+export function normalizeDatasetRows(docs) {
+  const out = [];
+  for (const d of docs || []) {
+    let text = pick(d, [...TEXT_COLS, 'komentar_asli', 'clean_text', 'cleaned_text', 'text_clean', 'content', 'body', 'caption', 'comment_text', 'komentar_bersih']);
+    if (!text) {
+      let best = '';
+      for (const v of Object.values(d || {})) if (typeof v === 'string' && v.length > best.length) best = v;
+      text = best.length >= 15 ? best : null;
+    }
+    if (!text || !String(text).trim()) continue;
+    const src = pick(d, SRC_COLS);
+    const rawDate = pick(d, [...DATE_COLS, 'tanggal_komentar', 'date_posted', 'posted_at', 'created', 'datetime']);
+    const date = toIsoDate(rawDate) || findByHint(d, DATE_HINTS, toIsoDate);
+    const rawLabel = pick(d, LABEL_COLS);
+    const label = rawLabel != null ? LABEL_MAP[String(rawLabel).trim().toLowerCase()] || null : null;
+    out.push({ id: out.length + 1, text: String(text).trim(), date, source: src ? String(src).trim() : '-', label });
+  }
+  return out;
 }

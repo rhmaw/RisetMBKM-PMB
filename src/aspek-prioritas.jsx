@@ -2,9 +2,8 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import './aspek-prioritas.css';
 import {
   ASPECTS, ASPECT_MAP, CRITERIA, CSV_TEMPLATE, DEFAULT_IMPORTANCE, DEFAULT_WEIGHTS, LEVELS,
-  analyzeRows, parseTable, summarize, toCsv,
+  analyzeRows, normalizeDatasetRows, parseTable, summarize, toCsv,
 } from './aspek-engine';
-import { SAMPLE_ROWS } from './sample-data';
 
 const LS_KEY = 'pmb-aspek-prioritas-v1';
 const LEVEL_CLASS = { [LEVELS.HIGH]: 'hi', [LEVELS.MID]: 'md', [LEVELS.LOW]: 'lo', [LEVELS.NONE]: 'na' };
@@ -102,7 +101,9 @@ function PriorityMatrix({ aspects, onPick }) {
 
 /* ---------------- halaman utama ---------------- */
 
-export default function AspekPrioritas({ predictor, predictorLabel }) {
+// loadFirebaseRows: fungsi async yang mengembalikan seluruh dokumen dataset dari Firebase
+// (array objek dengan field komentar/tanggal/sumber). Lihat contoh pemakaian di App.jsx.
+export default function AspekPrioritas({ predictor, predictorLabel, loadFirebaseRows }) {
   const saved = useRef(loadSaved()).current;
   const fileRef = useRef(null);
 
@@ -114,6 +115,7 @@ export default function AspekPrioritas({ predictor, predictorLabel }) {
   const [results, setResults] = useState([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [loadingFb, setLoadingFb] = useState(false);
 
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -163,8 +165,17 @@ export default function AspekPrioritas({ predictor, predictorLabel }) {
 
   const summary = useMemo(() => summarize(filtered, { weights, importance }), [filtered, weights, importance]);
   const shown = useMemo(() => (appliedAspek === 'all' ? summary.aspects : summary.aspects.filter((a) => a.id === appliedAspek)), [summary, appliedAspek]);
-  const active = summary.aspects.filter((a) => a.mentions > 0);
+  const active = shown.filter((a) => a.mentions > 0);
   const top = active[0];
+  const isAspectView = appliedAspek !== 'all';
+  const aspectComments = useMemo(
+    () => (isAspectView ? filtered.filter((r) => r.aspects.some((a) => a.aspect === appliedAspek)) : filtered),
+    [filtered, isAspectView, appliedAspek],
+  );
+  const kpi = isAspectView
+    ? { total: aspectComments.length, totalNote: `dari ${summary.total} komentar terfilter`, mentions: top ? top.mentions : 0, neg: top ? top.neg : 0, negShare: top ? top.negRate : 0 }
+    : { total: summary.total, totalNote: `${summary.unclassified} tanpa aspek jelas`, mentions: summary.mentionTotal, neg: summary.negTotal, negShare: summary.negShare };
+  const themesView = isAspectView ? (top ? top.themes.map((t) => ({ ...t, aspectId: top.id, aspectLabel: top.label })) : []) : summary.themesAll;
 
   const extraction = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -190,7 +201,22 @@ export default function AspekPrioritas({ predictor, predictorLabel }) {
     reader.readAsText(f);
   };
   const clearData = () => { setRows([]); setSourceName(''); setIsDemo(false); setNotice(null); };
-  const useDemo = () => { setRows(SAMPLE_ROWS); setSourceName('Data contoh'); setIsDemo(true); setNotice(null); };
+  const useFirebase = async () => {
+    if (typeof loadFirebaseRows !== 'function') {
+      setNotice({ type: 'err', text: 'Sumber dataset Firebase belum dihubungkan ke halaman ini (prop loadFirebaseRows belum diberikan).' });
+      return;
+    }
+    setLoadingFb(true); setNotice(null);
+    try {
+      const docs = await loadFirebaseRows();
+      const data = normalizeDatasetRows(docs);
+      if (!data.length) { setNotice({ type: 'err', text: 'Dataset Firebase kosong atau tidak memiliki kolom komentar yang dapat dibaca.' }); return; }
+      setRows(data); setSourceName('Dataset Firebase'); setIsDemo(true);
+      setNotice({ type: 'ok', text: `${data.length} komentar dimuat dari dataset Firebase.` });
+    } catch (err) {
+      setNotice({ type: 'err', text: `Gagal memuat dataset Firebase: ${err?.message || 'kesalahan tidak diketahui'}.` });
+    } finally { setLoadingFb(false); }
+  };
   const resetWeights = () => { setWeights({ ...DEFAULT_WEIGHTS }); setImportance({ ...DEFAULT_IMPORTANCE }); };
 
   const exportPriority = () => {
@@ -200,7 +226,7 @@ export default function AspekPrioritas({ predictor, predictorLabel }) {
   };
   const exportExtraction = () => {
     const cols = ['Komentar', 'Tanggal', 'Sumber', 'Aspek', 'Sentimen', 'Tema keluhan'];
-    const data = filtered.flatMap((r) => r.aspects.map((a) => [r.text, r.date || '', r.source, ASPECT_MAP[a.aspect].label, SENT_LABEL[a.sentiment], a.theme || '']));
+    const data = filtered.flatMap((r) => r.aspects.filter((a) => !isAspectView || a.aspect === appliedAspek).map((a) => [r.text, r.date || '', r.source, ASPECT_MAP[a.aspect].label, SENT_LABEL[a.sentiment], a.theme || '']));
     download('ekstraksi-aspek-sentimen-pmb.csv', toCsv(cols, data));
   };
 
@@ -213,7 +239,7 @@ export default function AspekPrioritas({ predictor, predictorLabel }) {
           <p className="ap-eyebrow">Analisis lanjutan</p>
           <h1 className="ap-title">
             Analisis Aspek &amp; Prioritas Layanan
-            <span className={`ap-tag ${!loaded ? '' : isDemo ? 'ap-tag--demo' : 'ap-tag--real'}`}>{!loaded ? 'Belum ada data' : isDemo ? 'Data contoh' : 'Data unggahan'}</span>
+            <span className={`ap-tag ${!loaded ? '' : isDemo ? 'ap-tag--real' : 'ap-tag--real'}`}>{!loaded ? 'Belum ada data' : isDemo ? 'Dataset Firebase' : 'Data unggahan'}</span>
           </h1>
           <p className="ap-sub">Identifikasi aspek layanan PMB, sentimen per aspek, dan prioritas perbaikan berbasis komentar calon mahasiswa.</p>
         </div>
@@ -231,11 +257,11 @@ export default function AspekPrioritas({ predictor, predictorLabel }) {
           <div className="ap-data__info">
             <strong>{sourceName}</strong>
             <span className="ap-muted">{rows.length} komentar dimuat{applied ? ` · ${summary.withAspect} dengan aspek teridentifikasi` : ''}</span>
-            {isDemo && <span className="ap-muted">Angka di halaman ini dihitung dari data contoh. Unggah CSV untuk memakai data PMB sebenarnya.</span>}
+            
           </div>
           <div className="ap-actions">
             <button type="button" className="ap-btn ap-btn--primary" onClick={() => fileRef.current?.click()}>Unggah CSV</button>
-            {!isDemo && <button type="button" className="ap-btn" onClick={useDemo}>Pakai data contoh</button>}
+            {!isDemo && <button type="button" className="ap-btn" onClick={useFirebase} disabled={loadingFb}>{loadingFb ? 'Memuat…' : 'Pakai dataset Firebase'}</button>}
             <button type="button" className="ap-btn" onClick={clearData}>Kosongkan</button>
           </div>
           {notice && <p className={`ap-note ap-note--${notice.type}`} role="status">{notice.text}</p>}
@@ -285,7 +311,7 @@ export default function AspekPrioritas({ predictor, predictorLabel }) {
               <p className="ap-muted">Unggah file CSV komentar calon mahasiswa, lalu atur filter dan tekan Terapkan Filter. Belum ada angka yang ditampilkan sampai pengecekan dilakukan.</p>
               <div className="ap-actions">
                 <button type="button" className="ap-btn ap-btn--primary" onClick={() => fileRef.current?.click()}>Unggah CSV</button>
-                <button type="button" className="ap-btn" onClick={useDemo}>Coba dengan data contoh</button>
+                <button type="button" className="ap-btn" onClick={useFirebase} disabled={loadingFb}>{loadingFb ? 'Memuat dataset…' : 'Coba dengan dataset Firebase'}</button>
                 <button type="button" className="ap-btn" onClick={() => download('template-komentar-pmb.csv', CSV_TEMPLATE.trimEnd())}>Unduh template</button>
               </div>
             </>
@@ -298,9 +324,9 @@ export default function AspekPrioritas({ predictor, predictorLabel }) {
       ) : (
         <>
           <section className="ap-kpis">
-            <div className="ap-card ap-kpi"><span>Komentar dianalisis</span><strong>{summary.total}</strong><small>{summary.unclassified} tanpa aspek jelas</small></div>
-            <div className="ap-card ap-kpi"><span>Aspek terdeteksi</span><strong>{active.length}<small> / {ASPECTS.length}</small></strong><small>{summary.mentionTotal} sebutan total</small></div>
-            <div className="ap-card ap-kpi"><span>Sebutan negatif</span><strong>{pct(summary.negShare)}</strong><small>{summary.negTotal} dari {summary.mentionTotal}</small></div>
+            <div className="ap-card ap-kpi"><span>Komentar dianalisis</span><strong>{kpi.total}</strong><small>{kpi.totalNote}</small></div>
+            <div className="ap-card ap-kpi"><span>{isAspectView ? 'Aspek dipilih' : 'Aspek terdeteksi'}</span><strong>{isAspectView ? (top ? top.label : ASPECT_MAP[appliedAspek].label) : active.length}{!isAspectView && <small> / {ASPECTS.length}</small>}</strong><small>{kpi.mentions} sebutan total</small></div>
+            <div className="ap-card ap-kpi"><span>Sebutan negatif</span><strong>{pct(kpi.negShare)}</strong><small>{kpi.neg} dari {kpi.mentions}</small></div>
             <div className="ap-card ap-kpi ap-kpi--top"><span>Prioritas tertinggi</span><strong>{top ? top.label : '-'}</strong><small>{top ? `Skor ${top.score} · ${pct(top.negRate)} negatif` : ''}</small></div>
           </section>
 
@@ -366,17 +392,17 @@ export default function AspekPrioritas({ predictor, predictorLabel }) {
             <section className="ap-card">
               <h2>Matriks prioritas</h2>
               <p className="ap-muted">Kanan atas = sering dibahas dan banyak negatif. Ukuran titik = skor prioritas.</p>
-              <PriorityMatrix aspects={summary.aspects} onPick={(id) => { setExpanded(id); }} />
+              <PriorityMatrix aspects={shown} onPick={(id) => { setExpanded(id); }} />
             </section>
 
             <section className="ap-card">
               <h2>Tema keluhan dominan</h2>
-              {summary.themesAll.length === 0 ? <p className="ap-muted">Belum ada keluhan.</p> : (
+              {themesView.length === 0 ? <p className="ap-muted">Belum ada keluhan.</p> : (
                 <ol className="ap-themes">
-                  {summary.themesAll.map((t) => (
+                  {themesView.map((t) => (
                     <li key={`${t.aspectId}-${t.label}`}>
                       <div className="ap-themes__row"><span>{t.label}</span><b>{t.count}</b></div>
-                      <div className="ap-themes__bar"><span style={{ width: `${(t.count / summary.themesAll[0].count) * 100}%` }} /></div>
+                      <div className="ap-themes__bar"><span style={{ width: `${(t.count / themesView[0].count) * 100}%` }} /></div>
                       <small className="ap-muted">{t.aspectLabel}</small>
                     </li>
                   ))}
@@ -422,7 +448,7 @@ export default function AspekPrioritas({ predictor, predictorLabel }) {
             <div className="ap-sec-head">
               <div>
                 <h2>Contoh ekstraksi aspek–sentimen</h2>
-                <p className="ap-muted">{extraction.length} komentar sesuai filter.</p>
+                <p className="ap-muted">{extraction.length} komentar sesuai filter{isAspectView ? ` (aspek ${ASPECT_MAP[appliedAspek].label})` : ''}.</p>
               </div>
               <div className="ap-actions">
                 <input className="ap-search" type="search" placeholder="Cari komentar…" value={query} onChange={(e) => { setQuery(e.target.value); setLimit(10); }} aria-label="Cari komentar" />
@@ -449,7 +475,7 @@ export default function AspekPrioritas({ predictor, predictorLabel }) {
           </section>
 
           <p className="ap-foot ap-muted">
-            Metode: aspek dan sentimen ditentukan oleh {predictor ? 'model yang dihubungkan' : 'aturan kata kunci dan leksikon sentimen bahasa Indonesia (offline)'}. Satu komentar dapat memuat beberapa aspek; bila ada sentimen campuran pada satu aspek, hasilnya dicatat negatif agar keluhan tidak terlewat. Validasi hasil bersama Panitia sebelum dipakai sebagai dasar keputusan.
+            Metode: aspek dan sentimen ditentukan oleh {predictor ? 'model yang dihubungkan' : 'aturan kata kunci dan leksikon sentimen bahasa Indonesia (offline)'}. Jika dataset memiliki kolom label sentimen (mis. sentimen/label), label itu dipakai sebagai sentimen tiap aspek pada komentar tersebut. Satu komentar dapat memuat beberapa aspek; bila ada sentimen campuran pada satu aspek, hasilnya dicatat negatif agar keluhan tidak terlewat. Validasi hasil bersama Panitia sebelum dipakai sebagai dasar keputusan.
           </p>
         </>
       )}

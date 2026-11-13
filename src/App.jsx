@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
 import { auth } from "./firebase.js";
+import { loadFirebaseRows } from "./aspek-firebase.js";
 import AppShell from "./components/AppShell.jsx";
 import Login from "./pages/Login.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
@@ -65,7 +66,10 @@ export default function App() {
           <Route path="/monitoring" element={<SentimentMonitoring />} />
           <Route path="/dataset" element={<Dataset />} />
           <Route path="/insight-export" element={<InsightExport />} />
-          <Route path="/aspect-priority" element={<AspectPriority />} />
+          <Route
+            path="/aspect-priority"
+            element={<AspectPriority loadFirebaseRows={loadFirebaseRows} />}
+          />
           <Route path="/help" element={<HelpManual />} />
         </Route>
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} replace />} />
